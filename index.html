@@ -30,7 +30,7 @@
             height: 40px; 
             background: #f1f8e9; 
             box-sizing: border-box;
-            border: 1px solid rgba(0,0,0,0.05); /* Dezentes Raster */
+            border: 1px solid rgba(0,0,0,0.05);
         }
 
         .sidebar { width: 320px; display: flex; flex-direction: column; gap: 10px; }
@@ -38,6 +38,18 @@
         .mega-water-btn {
             background: var(--water); color: white; border: none; padding: 15px; border-radius: 20px;
             font-family: 'Fredoka One'; cursor: pointer; transition: 0.3s; box-shadow: 0 5px 0 #0288d1;
+        }
+
+        .rotate-btn {
+            background: #ffb300; color: white; border: none; padding: 10px; border-radius: 20px;
+            font-family: 'Fredoka One'; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 0 #fb8c00;
+            font-size: 0.9em;
+        }
+
+        .cancel-btn {
+            background: #e53935; color: white; border: none; padding: 10px; border-radius: 20px;
+            font-family: 'Fredoka One'; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 0 #b71c1c;
+            font-size: 0.9em;
         }
 
         .plant-card { background: #fff; border: 3px solid #eee; border-radius: 15px; padding: 10px; cursor: grab; display: flex; align-items: center; gap: 12px; }
@@ -48,7 +60,6 @@
             transition: transform 0.2s;
         }
         
-        /* Wachstumsstufen */
         .stage-0 { filter: grayscale(1) brightness(1.2); }
         .stage-1 { filter: sepia(1) hue-rotate(90deg); }
         .stage-2 { filter: saturate(0.8); }
@@ -79,7 +90,14 @@
 
     <div class="garden-wrapper">
         <h1 style="font-family:'Fredoka One'; color:var(--border); margin:0;">🌱 Wachstums-Garten</h1>
-        <p style="font-size:0.8em; margin-bottom:5px;"><b>Klick 💧 zum Gießen</b> | <b>M</b> zum Drehen</p>
+        <p style="font-size:0.8em; margin-bottom:3px;">
+            <b>Klick 💧 zum Gießen</b> | <b>M</b> zum Drehen (PC)
+        </p>
+        <p style="font-size:0.7em; margin-top:0; margin-bottom:8px; color:#555;">
+            <b>Auf Tablets:</b> Ziehe mit dem Finger eine Pflanze in den Garten.
+            Fährt die Figur über ↻, dreht sie sich. Fährst du mit der Figur über den roten ❌-Knopf, verschwindet sie wieder.
+        </p>
+
         <div class="grid" id="garden-grid" 
              ondragover="handleDragOver(event)" 
              ondrop="handleDrop(event)"></div>
@@ -88,8 +106,10 @@
 
     <div class="sidebar">
         <button class="mega-water-btn" onclick="startMegaWatering()">🚿 ALLES GIEẞEN (Profi-Multiplikation)</button>
+        <button class="rotate-btn" onclick="rotateCurrentShapeBeforeDrop()">↻ Form drehen (vor dem Platzieren)</button>
         <h3 style="margin:5px 0;">Samen-Vorrat:</h3>
-        <!-- Plant Cards: PC = dragstart, Mobil = touchstart -->
+
+        <!-- Plant Cards -->
         <div class="plant-card" draggable="true"
              ondragstart="startDrag(event, 4, 4, '🎃', '#fb8500')"
              ontouchstart="startTouchDragFromSeed(event, 4, 4, '🎃', '#fb8500')">
@@ -110,6 +130,14 @@
              ontouchstart="startTouchDragFromSeed(event, 1, 1, '🥕', '#ff9800')">
             <span>🥕 Karotte (1x1)</span>
         </div>
+        <!-- NUEVA PLANTA 1x5 -->
+        <div class="plant-card" draggable="true"
+             ondragstart="startDrag(event, 1, 5, '🌻', '#ffd54f')"
+             ontouchstart="startTouchDragFromSeed(event, 1, 5, '🌻', '#ffd54f')">
+            <span>🌻 Sonnenblume (1x5)</span>
+        </div>
+
+        <button class="cancel-btn" onclick="cancelCurrentShape()">❌ Pflanze verwerfen</button>
     </div>
 </div>
 
@@ -117,6 +145,9 @@
     const grid = document.getElementById('garden-grid');
     const overlay = document.getElementById('overlay');
     const ansInput = document.getElementById('math-answer');
+    const rotateBtn = document.querySelector('.rotate-btn');
+    const cancelBtn = document.querySelector('.cancel-btn');
+
     let draggedInfo = null;
     let hoveredId = null;
     let pendingTask = null;
@@ -124,9 +155,10 @@
 
     const STAGE_ICONS = { 0: '🌱', 1: '🌿' };
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    const CELL_SIZE = 42; // 40px Zelle + 2px Gap
+    const CELL_SIZE = 42;
 
-    // Estado para drag táctil (sólo desde Samen-Vorrat)
+    const thirstTimers = {};
+
     let touchDrag = {
         active: false,
         w: 0,
@@ -135,10 +167,11 @@
         color: '',
         col: null,
         row: null,
-        ghost: null
+        ghost: null,
+        overRotateBtn: false,
+        overCancelBtn: false
     };
 
-    // 100 Raster-Zellen
     for (let i = 0; i < 100; i++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
@@ -146,15 +179,21 @@
     }
 
     document.addEventListener('keydown', (e) => {
-        if (e.key.toLowerCase() === 'm' && hoveredId) rotatePlant(hoveredId);
+        const key = e.key.toLowerCase();
+        if (key === 'm') {
+            if (touchDrag.active || draggedInfo) {
+                rotateCurrentShapeBeforeDrop();
+            } else if (hoveredId) {
+                rotatePlant(hoveredId);
+            }
+        }
         if (e.key === 'Enter' && overlay.style.display === 'flex') checkMath();
     });
 
     function handleDragOver(ev) { ev.preventDefault(); }
 
-    // Maus-Drag (PC)
     function startDrag(ev, w, h, icon, color, isNew = true, existingId = null) {
-        if (isTouchDevice) return; // auf Touch eigenes System
+        if (isTouchDevice) return;
         draggedInfo = { w, h, icon, color, isNew, existingId };
         if (existingId) document.getElementById(existingId).style.opacity = "0.4";
     }
@@ -179,7 +218,6 @@
         if (!draggedInfo) return;
         const { w, h, icon, color, isNew, existingId } = draggedInfo;
 
-        // Begrenzen
         const col = Math.max(0, Math.min(10 - w, colRaw));
         const row = Math.max(0, Math.min(10 - h, rowRaw));
 
@@ -234,13 +272,13 @@
         div.style.backgroundColor = color;
         div.draggable = true;
         
-        // Maus-Drag (nur PC) zum Verschieben
         div.ondragstart = (e) => startDrag(e, parseInt(div.dataset.w), parseInt(div.dataset.h), icon, color, false, id);
         div.onmouseenter = () => hoveredId = id;
         div.onmouseleave = () => { if (hoveredId === id) hoveredId = null; };
         
-        // Gießen per Klick/Touch (Tap)
         div.onclick = () => {
+            const stage = parseInt(div.dataset.stage);
+            if (stage >= 3) return;
             if (div.classList.contains('thirsty')) {
                 const n1 = Math.floor(Math.random() * 20) + 10;
                 const n2 = Math.floor(Math.random() * 20) + 10;
@@ -248,8 +286,6 @@
                 showOverlay("Gießen!", `${n1} + ${n2}`);
             }
         };
-
-        // Wichtig: KEIN ontouchstart hier -> auf Tablet bleibt die Pflanze an Ort und Stelle
 
         grid.appendChild(div);
         updateOccupancy(id, col, row, w, h);
@@ -262,6 +298,7 @@
         if (!el) return;
         let stage = parseInt(el.dataset.stage);
         if (stage < 3) stage++;
+        if (stage > 3) stage = 3;
         el.dataset.stage = stage;
         el.className = `placed-plant stage-${stage}`;
         
@@ -271,14 +308,31 @@
         
         renderIcons(el, parseInt(el.dataset.w), parseInt(el.dataset.h), currentIcon);
         el.classList.remove('thirsty');
+
+        if (thirstTimers[id]) {
+            clearTimeout(thirstTimers[id]);
+            delete thirstTimers[id];
+        }
         if (stage < 3) startThirstTimer(id);
     }
 
     function startThirstTimer(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const stage = parseInt(el.dataset.stage);
+        if (stage >= 3) return;
+
+        if (thirstTimers[id]) {
+            clearTimeout(thirstTimers[id]);
+            delete thirstTimers[id];
+        }
+
         const time = 20000 + Math.random() * 10000; 
-        setTimeout(() => {
-            const el = document.getElementById(id);
-            if (el && parseInt(el.dataset.stage) < 3) el.classList.add('thirsty');
+        thirstTimers[id] = setTimeout(() => {
+            const el2 = document.getElementById(id);
+            if (!el2) return;
+            const st = parseInt(el2.dataset.stage);
+            if (st < 3) el2.classList.add('thirsty');
         }, time);
     }
 
@@ -322,14 +376,17 @@
 
     function rotatePlant(id) {
         const el = document.getElementById(id);
-        if (el.classList.contains('thirsty')) return;
+        if (!el || el.classList.contains('thirsty')) return;
         const oldW = parseInt(el.dataset.w), oldH = parseInt(el.dataset.h);
         const col = parseInt(el.dataset.col), row = parseInt(el.dataset.row);
         if (isAreaFree(col, row, oldH, oldW, id)) {
             updateOccupancy(id, col, row, oldW, oldH, true);
             el.dataset.w = oldH; el.dataset.h = oldW;
-            let currentIcon = el.dataset.stage < 2 ? STAGE_ICONS[el.dataset.stage] : el.dataset.icon;
-            renderIcons(el, oldH, oldW, currentIcon);
+            const stage = parseInt(el.dataset.stage);
+            let icon = el.dataset.icon;
+            if (stage === 0) icon = STAGE_ICONS[0];
+            else if (stage === 1) icon = STAGE_ICONS[1];
+            renderIcons(el, oldH, oldW, icon);
             updateOccupancy(id, col, row, oldH, oldW);
             updateArea();
         }
@@ -340,8 +397,6 @@
         document.querySelectorAll('.placed-plant').forEach(p => total += parseInt(p.dataset.w) * parseInt(p.dataset.h));
         document.getElementById('area-val').innerText = total;
     }
-
-    // ------- Touch-Drag nur für Samen-Karten -------
 
     function createGhost(w, h, icon, color) {
         const ghost = document.createElement('div');
@@ -356,13 +411,11 @@
         return ghost;
     }
 
-    // actualiza: calcula celda + coloca ghost exactamente en esa celda
     function updateGhostAndCellFromTouch(touch) {
         const rect = grid.getBoundingClientRect();
         let col = Math.floor((touch.clientX - rect.left) / CELL_SIZE);
         let row = Math.floor((touch.clientY - rect.top) / CELL_SIZE);
 
-        // Begrenzen
         col = Math.max(0, Math.min(10 - touchDrag.w, col));
         row = Math.max(0, Math.min(10 - touchDrag.h, row));
 
@@ -375,6 +428,28 @@
             touchDrag.ghost.style.left = screenLeft + 'px';
             touchDrag.ghost.style.top  = screenTop  + 'px';
         }
+    }
+
+    function isTouchOverRotateBtn(touch) {
+        if (!rotateBtn) return false;
+        const rect = rotateBtn.getBoundingClientRect();
+        return (
+            touch.clientX >= rect.left &&
+            touch.clientX <= rect.right &&
+            touch.clientY >= rect.top &&
+            touch.clientY <= rect.bottom
+        );
+    }
+
+    function isTouchOverCancelBtn(touch) {
+        if (!cancelBtn) return false;
+        const rect = cancelBtn.getBoundingClientRect();
+        return (
+            touch.clientX >= rect.left &&
+            touch.clientX <= rect.right &&
+            touch.clientY >= rect.top &&
+            touch.clientY <= rect.bottom
+        );
     }
 
     function startTouchDragFromSeed(ev, w, h, icon, color) {
@@ -390,6 +465,8 @@
         touchDrag.color = color;
         touchDrag.col = null;
         touchDrag.row = null;
+        touchDrag.overRotateBtn = false;
+        touchDrag.overCancelBtn = false;
         touchDrag.ghost = createGhost(w, h, icon, color);
 
         updateGhostAndCellFromTouch(touch);
@@ -400,7 +477,22 @@
         const touch = ev.touches && ev.touches[0];
         if (!touch) return;
         ev.preventDefault();
+
         updateGhostAndCellFromTouch(touch);
+
+        const overBtn = isTouchOverRotateBtn(touch);
+        if (overBtn && !touchDrag.overRotateBtn) {
+            rotateCurrentShapeBeforeDrop();
+        }
+        touchDrag.overRotateBtn = overBtn;
+
+        const overCancel = isTouchOverCancelBtn(touch);
+        if (overCancel && !touchDrag.overCancelBtn) {
+            cancelCurrentShape();
+            touchDrag.overCancelBtn = overCancel;
+            return;
+        }
+        touchDrag.overCancelBtn = overCancel;
     }
 
     function handleTouchEnd(ev) {
@@ -419,12 +511,61 @@
 
         touchDrag.active = false;
         touchDrag.ghost = null;
+        touchDrag.overRotateBtn = false;
+        touchDrag.overCancelBtn = false;
 
         if (col == null || row == null) return;
         if (!isAreaFree(col, row, w, h, null)) return;
 
         pendingTask = { type: 'place', col, row, w, h, icon, color, result: w * h };
         showOverlay("Neue Pflanze!", `${w} x ${h}`);
+    }
+
+    function rotateCurrentShapeBeforeDrop() {
+        if (touchDrag.active) {
+            const oldW = touchDrag.w;
+            const oldH = touchDrag.h;
+            touchDrag.w = oldH;
+            touchDrag.h = oldW;
+
+            if (touchDrag.ghost) {
+                renderIcons(touchDrag.ghost, touchDrag.w, touchDrag.h, touchDrag.icon);
+            }
+
+            if (touchDrag.col !== null && touchDrag.row !== null) {
+                const rect = grid.getBoundingClientRect();
+                let col = Math.max(0, Math.min(10 - touchDrag.w, touchDrag.col));
+                let row = Math.max(0, Math.min(10 - touchDrag.h, touchDrag.row));
+                touchDrag.col = col;
+                touchDrag.row = row;
+
+                const screenLeft = rect.left + col * CELL_SIZE;
+                const screenTop  = rect.top  + row * CELL_SIZE;
+                touchDrag.ghost.style.left = screenLeft + 'px';
+                touchDrag.ghost.style.top  = screenTop  + 'px';
+            }
+        } 
+        else if (draggedInfo) {
+            const oldW = draggedInfo.w;
+            draggedInfo.w = draggedInfo.h;
+            draggedInfo.h = oldW;
+        }
+    }
+
+    function cancelCurrentShape() {
+        if (touchDrag.active) {
+            if (touchDrag.ghost) {
+                document.body.removeChild(touchDrag.ghost);
+            }
+            touchDrag.active = false;
+            touchDrag.ghost = null;
+            touchDrag.col = null;
+            touchDrag.row = null;
+            touchDrag.overRotateBtn = false;
+            touchDrag.overCancelBtn = false;
+        }
+        draggedInfo = null;
+        pendingTask = null;
     }
 
     if (isTouchDevice) {
