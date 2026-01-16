@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Garten-Puzzle: Wachstum & Raster</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root { --sky: #e3f2fd; --border: #0288d1; --water: #29b6f6; --grid-line: #cfd8dc; }
+        body { font-family: 'Nunito', sans-serif; background: var(--sky); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; overflow: hidden; }
+        
+        .game-container { background: white; border: 6px solid var(--border); border-radius: 40px; padding: 25px; display: flex; gap: 30px; box-shadow: 0 15px 0 #01579b; position: relative; width: 950px; }
+        
+        .garden-wrapper { text-align: center; flex: 1; }
+        
+        /* Das Gitter-Design */
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(10, 40px); 
+            grid-template-rows: repeat(10, 40px); 
+            gap: 2px; 
+            background: var(--grid-line); 
+            border: 4px solid #33691e; 
+            position: relative; 
+            width: 418px; 
+            height: 418px; 
+            margin: 0 auto;
+        }
+        .cell { 
+            width: 40px; 
+            height: 40px; 
+            background: #f1f8e9; 
+            box-sizing: border-box;
+            border: 1px solid rgba(0,0,0,0.05); /* Dezentes Raster */
+        }
+
+        .sidebar { width: 320px; display: flex; flex-direction: column; gap: 10px; }
+        
+        .mega-water-btn {
+            background: var(--water); color: white; border: none; padding: 15px; border-radius: 20px;
+            font-family: 'Fredoka One'; cursor: pointer; transition: 0.3s; box-shadow: 0 5px 0 #0288d1;
+        }
+
+        .plant-card { background: #fff; border: 3px solid #eee; border-radius: 15px; padding: 10px; cursor: grab; display: flex; align-items: center; gap: 12px; }
+
+        .placed-plant { 
+            position: absolute; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; 
+            display: grid; cursor: move; box-sizing: border-box; z-index: 10;
+            transition: transform 0.2s;
+        }
+        
+        /* Wachstumsstufen */
+        .stage-0 { filter: grayscale(1) brightness(1.2); }
+        .stage-1 { filter: sepia(1) hue-rotate(90deg); }
+        .stage-2 { filter: saturate(0.8); }
+        .stage-3 { filter: saturate(1.5) drop-shadow(0 0 5px gold); border: 2px solid gold !important; }
+
+        .thirsty { border: 3px solid var(--water) !important; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(41, 182, 246, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(41, 182, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(41, 182, 246, 0); } }
+        .thirsty::after { content: '💧'; position: absolute; top: -12px; right: -12px; font-size: 22px; z-index: 20; }
+
+        #overlay {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(103, 58, 183, 0.95); border-radius: 35px; z-index: 100;
+            flex-direction: column; justify-content: center; align-items: center; color: white;
+        }
+        #overlay input { font-size: 2.5em; width: 150px; text-align: center; border-radius: 15px; border: none; font-family: 'Fredoka One'; margin-top: 15px; }
+        
+        .stats { background: #0288d1; color: white; padding: 10px; border-radius: 50px; font-family: 'Fredoka One'; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="game-container">
+    <div id="overlay">
+        <h2 id="overlay-title" style="font-family:'Fredoka One'">Aufgabe</h2>
+        <div style="font-size: 2.5em;"><span id="calc-text">?</span> = ?</div>
+        <input type="number" id="math-answer">
+    </div>
+
+    <div class="garden-wrapper">
+        <h1 style="font-family:'Fredoka One'; color:var(--border); margin:0;">🌱 Wachstums-Garten</h1>
+        <p style="font-size:0.8em; margin-bottom:5px;"><b>Klick 💧 zum Gießen</b> | <b>M</b> zum Drehen</p>
+        <div class="grid" id="garden-grid" ondragover="handleDragOver(event)" ondrop="handleDrop(event)"></div>
+        <div class="stats">Belegte Fläche: <span id="area-val">0</span> / 100 m²</div>
+    </div>
+
+    <div class="sidebar">
+        <button class="mega-water-btn" onclick="startMegaWatering()">🚿 ALLES GIEẞEN (Profi-Multiplikation)</button>
+        <h3 style="margin:5px 0;">Samen-Vorrat:</h3>
+        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 4, 4, '🎃', '#fb8500')"><span>🎃 Kürbis (4x4)</span></div>
+        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 3, 2, '🌽', '#ffc107')"><span>🌽 Mais (3x2)</span></div>
+        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 2, 2, '🍓', '#e91e63')"><span>🍓 Erdbeere (2x2)</span></div>
+        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 1, 1, '🥕', '#ff9800')"><span>🥕 Karotte (1x1)</span></div>
+    </div>
+</div>
+
+<script>
+    const grid = document.getElementById('garden-grid');
+    const overlay = document.getElementById('overlay');
+    const ansInput = document.getElementById('math-answer');
+    let draggedInfo = null;
+    let hoveredId = null;
+    let pendingTask = null;
+    let occupancy = Array(10).fill().map(() => Array(10).fill(null));
+
+    const STAGE_ICONS = { 0: '🌱', 1: '🌿' };
+
+    // Erzeuge 100 Raster-Zellen
+    for (let i = 0; i < 100; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        grid.appendChild(cell);
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key.toLowerCase() === 'm' && hoveredId) rotatePlant(hoveredId);
+        if (e.key === 'Enter' && overlay.style.display === 'flex') checkMath();
+    });
+
+    function handleDragOver(ev) { ev.preventDefault(); }
+
+    function startDrag(ev, w, h, icon, color, isNew = true, existingId = null) {
+        draggedInfo = { w, h, icon, color, isNew, existingId };
+        if (existingId) document.getElementById(existingId).style.opacity = "0.4";
+    }
+
+    function isAreaFree(col, row, w, h, ignoreId = null) {
+        if (col < 0 || row < 0 || col + w > 10 || row + h > 10) return false;
+        for (let r = row; r < row + h; r++) {
+            for (let c = col; c < col + w; c++) {
+                if (occupancy[r][c] !== null && occupancy[r][c] !== ignoreId) return false;
+            }
+        }
+        return true;
+    }
+
+    function handleDrop(ev) {
+        ev.preventDefault();
+        const rect = grid.getBoundingClientRect();
+        const col = Math.round((ev.clientX - rect.left - 20) / 42); 
+        const row = Math.round((ev.clientY - rect.top - 20) / 42);
+
+        if (!draggedInfo) return;
+        const { w, h, icon, color, isNew, existingId } = draggedInfo;
+
+        if (isAreaFree(col, row, w, h, existingId)) {
+            if (isNew) {
+                pendingTask = { type: 'place', col, row, w, h, icon, color, result: w * h };
+                showOverlay("Neue Pflanze!", `${w} x ${h}`);
+            } else {
+                movePlant(existingId, col, row);
+            }
+        } else if (existingId) {
+            document.getElementById(existingId).style.opacity = "1";
+        }
+        updateArea();
+        draggedInfo = null;
+    }
+
+    function showOverlay(title, text) {
+        document.getElementById('overlay-title').innerText = title;
+        document.getElementById('calc-text').innerText = text;
+        ansInput.value = '';
+        overlay.style.display = 'flex';
+        ansInput.focus();
+    }
+
+    function checkMath() {
+        const val = parseInt(ansInput.value);
+        if (val === pendingTask.result) {
+            overlay.style.display = 'none';
+            if (pendingTask.type === 'place') {
+                placePlant(pendingTask.col, pendingTask.row, pendingTask.w, pendingTask.h, pendingTask.icon, pendingTask.color);
+            } else if (pendingTask.type === 'water_single') {
+                growPlant(pendingTask.id);
+            } else if (pendingTask.type === 'water_mega') {
+                document.querySelectorAll('.thirsty').forEach(p => growPlant(p.id));
+            }
+        } else {
+            alert("Nicht ganz! Probier es noch einmal.");
+        }
+    }
+
+    function placePlant(col, row, w, h, icon, color) {
+        const id = 'p' + Date.now();
+        const div = document.createElement('div');
+        div.id = id; div.className = 'placed-plant stage-0';
+        div.dataset.w = w; div.dataset.h = h; div.dataset.col = col; div.dataset.row = row;
+        div.dataset.icon = icon; div.dataset.color = color; div.dataset.stage = "0";
+        
+        renderIcons(div, w, h, STAGE_ICONS[0]);
+        div.style.left = (col * 42) + 'px'; div.style.top = (row * 42) + 'px';
+        div.style.backgroundColor = color;
+        div.draggable = true;
+        
+        div.ondragstart = (e) => startDrag(e, parseInt(div.dataset.w), parseInt(div.dataset.h), icon, color, false, id);
+        div.onmouseenter = () => hoveredId = id;
+        div.onmouseleave = () => hoveredId = (hoveredId === id) ? null : hoveredId;
+        
+        div.onclick = () => {
+            if (div.classList.contains('thirsty')) {
+                const n1 = Math.floor(Math.random() * 20) + 10;
+                const n2 = Math.floor(Math.random() * 20) + 10;
+                pendingTask = { type: 'water_single', id: id, result: n1 + n2 };
+                showOverlay("Gießen!", `${n1} + ${n2}`);
+            }
+        };
+
+        grid.appendChild(div);
+        updateOccupancy(id, col, row, w, h);
+        startThirstTimer(id);
+        updateArea();
+    }
+
+    function growPlant(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        let stage = parseInt(el.dataset.stage);
+        if (stage < 3) stage++;
+        el.dataset.stage = stage;
+        el.className = `placed-plant stage-${stage}`;
+        
+        let currentIcon = el.dataset.icon;
+        if (stage === 0) currentIcon = STAGE_ICONS[0];
+        else if (stage === 1) currentIcon = STAGE_ICONS[1];
+        
+        renderIcons(el, parseInt(el.dataset.w), parseInt(el.dataset.h), currentIcon);
+        el.classList.remove('thirsty');
+        if (stage < 3) startThirstTimer(id);
+    }
+
+    function startThirstTimer(id) {
+        const time = 20000 + Math.random() * 10000; 
+        setTimeout(() => {
+            const el = document.getElementById(id);
+            if (el && parseInt(el.dataset.stage) < 3) el.classList.add('thirsty');
+        }, time);
+    }
+
+    function startMegaWatering() {
+        if (document.querySelectorAll('.thirsty').length === 0) return alert("Alles nass!");
+        const n1 = Math.floor(Math.random() * 5) + 11;
+        const n2 = Math.floor(Math.random() * 6) + 4;
+        pendingTask = { type: 'water_mega', result: n1 * n2 };
+        showOverlay("Mega-Gießen!", `${n1} x ${n2}`);
+    }
+
+    function updateOccupancy(id, col, row, w, h, remove = false) {
+        for (let r = row; r < row + h; r++) {
+            for (let c = col; c < col + w; c++) occupancy[r][c] = remove ? null : id;
+        }
+    }
+
+    function movePlant(id, newCol, newRow) {
+        const el = document.getElementById(id);
+        updateOccupancy(id, parseInt(el.dataset.col), parseInt(el.dataset.row), parseInt(el.dataset.w), parseInt(el.dataset.h), true);
+        el.dataset.col = newCol; el.dataset.row = newRow;
+        el.style.left = (newCol * 42) + 'px'; el.style.top = (newRow * 42) + 'px';
+        el.style.opacity = "1";
+        updateOccupancy(id, newCol, newRow, parseInt(el.dataset.w), parseInt(el.dataset.h));
+    }
+
+    function renderIcons(el, w, h, icon) {
+        el.innerHTML = '';
+        el.style.gridTemplateColumns = `repeat(${w}, 40px)`;
+        el.style.gridTemplateRows = `repeat(${h}, 40px)`;
+        el.style.gap = '2px';
+        for (let i = 0; i < (w * h); i++) {
+            const b = document.createElement('div');
+            b.style.display = 'flex'; b.style.alignItems = 'center'; b.style.justifyContent = 'center';
+            b.style.fontSize = '22px'; b.style.width = '40px'; b.style.height = '40px';
+            b.innerText = icon; el.appendChild(b);
+        }
+    }
+
+    function rotatePlant(id) {
+        const el = document.getElementById(id);
+        if (el.classList.contains('thirsty')) return;
+        const oldW = parseInt(el.dataset.w), oldH = parseInt(el.dataset.h);
+        const col = parseInt(el.dataset.col), row = parseInt(el.dataset.row);
+        if (isAreaFree(col, row, oldH, oldW, id)) {
+            updateOccupancy(id, col, row, oldW, oldH, true);
+            el.dataset.w = oldH; el.dataset.h = oldW;
+            let currentIcon = el.dataset.stage < 2 ? STAGE_ICONS[el.dataset.stage] : el.dataset.icon;
+            renderIcons(el, oldH, oldW, currentIcon);
+            updateOccupancy(id, col, row, oldH, oldW);
+            updateArea();
+        }
+    }
+
+    function updateArea() {
+        let total = 0;
+        document.querySelectorAll('.placed-plant').forEach(p => total += parseInt(p.dataset.w) * parseInt(p.dataset.h));
+        document.getElementById('area-val').innerText = total;
+    }
+</script>
+</body>
+</html>
