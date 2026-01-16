@@ -80,17 +80,38 @@
     <div class="garden-wrapper">
         <h1 style="font-family:'Fredoka One'; color:var(--border); margin:0;">🌱 Wachstums-Garten</h1>
         <p style="font-size:0.8em; margin-bottom:5px;"><b>Klick 💧 zum Gießen</b> | <b>M</b> zum Drehen</p>
-        <div class="grid" id="garden-grid" ondragover="handleDragOver(event)" ondrop="handleDrop(event)"></div>
+        <!-- Grid: jetzt zusätzlich onclick für Touch-Geräte -->
+        <div class="grid" id="garden-grid" 
+             ondragover="handleDragOver(event)" 
+             ondrop="handleDrop(event)"
+             onclick="handleGridClick(event)"></div>
         <div class="stats">Belegte Fläche: <span id="area-val">0</span> / 100 m²</div>
     </div>
 
     <div class="sidebar">
         <button class="mega-water-btn" onclick="startMegaWatering()">🚿 ALLES GIEẞEN (Profi-Multiplikation)</button>
         <h3 style="margin:5px 0;">Samen-Vorrat:</h3>
-        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 4, 4, '🎃', '#fb8500')"><span>🎃 Kürbis (4x4)</span></div>
-        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 3, 2, '🌽', '#ffc107')"><span>🌽 Mais (3x2)</span></div>
-        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 2, 2, '🍓', '#e91e63')"><span>🍓 Erdbeere (2x2)</span></div>
-        <div class="plant-card" draggable="true" ondragstart="startDrag(event, 1, 1, '🥕', '#ff9800')"><span>🥕 Karotte (1x1)</span></div>
+        <!-- Plant Cards: behalten dragstart für PC, fügen onclick für Touch hinzu -->
+        <div class="plant-card" draggable="true"
+             ondragstart="startDrag(event, 4, 4, '🎃', '#fb8500')"
+             onclick="selectPlantTouch(4, 4, '🎃', '#fb8500')">
+            <span>🎃 Kürbis (4x4)</span>
+        </div>
+        <div class="plant-card" draggable="true"
+             ondragstart="startDrag(event, 3, 2, '🌽', '#ffc107')"
+             onclick="selectPlantTouch(3, 2, '🌽', '#ffc107')">
+            <span>🌽 Mais (3x2)</span>
+        </div>
+        <div class="plant-card" draggable="true"
+             ondragstart="startDrag(event, 2, 2, '🍓', '#e91e63')"
+             onclick="selectPlantTouch(2, 2, '🍓', '#e91e63')">
+            <span>🍓 Erdbeere (2x2)</span>
+        </div>
+        <div class="plant-card" draggable="true"
+             ondragstart="startDrag(event, 1, 1, '🥕', '#ff9800')"
+             onclick="selectPlantTouch(1, 1, '🥕', '#ff9800')">
+            <span>🥕 Karotte (1x1)</span>
+        </div>
     </div>
 </div>
 
@@ -102,6 +123,10 @@
     let hoveredId = null;
     let pendingTask = null;
     let occupancy = Array(10).fill().map(() => Array(10).fill(null));
+
+    // NUEVO: detección de dispositivo táctil y planta seleccionada
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    let selectedPlant = null;
 
     const STAGE_ICONS = { 0: '🌱', 1: '🌿' };
 
@@ -292,6 +317,31 @@
         let total = 0;
         document.querySelectorAll('.placed-plant').forEach(p => total += parseInt(p.dataset.w) * parseInt(p.dataset.h));
         document.getElementById('area-val').innerText = total;
+    }
+
+    // NUEVO: seleccionar planta en pantallas táctiles
+    function selectPlantTouch(w, h, icon, color) {
+        if (!isTouchDevice) return; // en PC/portátil se usa drag & drop
+        selectedPlant = { w, h, icon, color };
+    }
+
+    // NUEVO: tocar im Raster zum Platzieren (nur Touch)
+    function handleGridClick(ev) {
+        if (!isTouchDevice) return;
+        if (!selectedPlant) return;
+
+        const rect = grid.getBoundingClientRect();
+        const col = Math.floor((ev.clientX - rect.left) / 42);
+        const row = Math.floor((ev.clientY - rect.top) / 42);
+
+        const { w, h, icon, color } = selectedPlant;
+
+        if (isAreaFree(col, row, w, h)) {
+            pendingTask = { type: 'place', col, row, w, h, icon, color, result: w * h };
+            showOverlay("Neue Pflanze!", `${w} x ${h}`);
+        } else {
+            // optional: alert("Hier ist kein Platz!");
+        }
     }
 </script>
 </body>
