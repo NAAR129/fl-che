@@ -80,7 +80,6 @@
     <div class="garden-wrapper">
         <h1 style="font-family:'Fredoka One'; color:var(--border); margin:0;">🌱 Wachstums-Garten</h1>
         <p style="font-size:0.8em; margin-bottom:5px;"><b>Klick 💧 zum Gießen</b> | <b>M</b> zum Drehen</p>
-        <!-- Grid (drag mit Maus, touch-drag mit Finger) -->
         <div class="grid" id="garden-grid" 
              ondragover="handleDragOver(event)" 
              ondrop="handleDrop(event)"></div>
@@ -90,7 +89,7 @@
     <div class="sidebar">
         <button class="mega-water-btn" onclick="startMegaWatering()">🚿 ALLES GIEẞEN (Profi-Multiplikation)</button>
         <h3 style="margin:5px 0;">Samen-Vorrat:</h3>
-        <!-- Plant Cards: dragstart für PC, touchstart für Mobil -->
+        <!-- Plant Cards: PC = dragstart, Mobil = touchstart -->
         <div class="plant-card" draggable="true"
              ondragstart="startDrag(event, 4, 4, '🎃', '#fb8500')"
              ontouchstart="startTouchDragFromSeed(event, 4, 4, '🎃', '#fb8500')">
@@ -124,26 +123,21 @@
     let occupancy = Array(10).fill().map(() => Array(10).fill(null));
 
     const STAGE_ICONS = { 0: '🌱', 1: '🌿' };
-
-    // Erkennung Touch-Gerät
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-    // Zustand für eigenes Touch-Drag-System
+    // Estado para drag táctil sólo desde semillas
     let touchDrag = {
         active: false,
         w: 0,
         h: 0,
         icon: '',
         color: '',
-        isNew: true,
-        existingId: null,
-        originalEl: null,
         col: null,
         row: null,
         ghost: null
     };
 
-    // Erzeuge 100 Raster-Zellen
+    // 100 Raster-Zellen
     for (let i = 0; i < 100; i++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
@@ -157,9 +151,9 @@
 
     function handleDragOver(ev) { ev.preventDefault(); }
 
-    // Standard-Drag & Drop (PC)
+    // Maus-Drag (PC)
     function startDrag(ev, w, h, icon, color, isNew = true, existingId = null) {
-        if (isTouchDevice) return; // auf Touch nutzen wir eigenes System
+        if (isTouchDevice) return; // auf Touch eigenes System
         draggedInfo = { w, h, icon, color, isNew, existingId };
         if (existingId) document.getElementById(existingId).style.opacity = "0.4";
     }
@@ -175,14 +169,18 @@
     }
 
     function handleDrop(ev) {
-        if (isTouchDevice) return; // Touch wird anders behandelt
+        if (isTouchDevice) return;
         ev.preventDefault();
         const rect = grid.getBoundingClientRect();
-        const col = Math.round((ev.clientX - rect.left - 20) / 42); 
-        const row = Math.round((ev.clientY - rect.top - 20) / 42);
+        const colRaw = Math.round((ev.clientX - rect.left - 20) / 42);
+        const rowRaw = Math.round((ev.clientY - rect.top - 20) / 42);
 
         if (!draggedInfo) return;
         const { w, h, icon, color, isNew, existingId } = draggedInfo;
+
+        // opcional: ajustar dentro del Gitter
+        const col = Math.max(0, Math.min(10 - w, colRaw));
+        const row = Math.max(0, Math.min(10 - h, rowRaw));
 
         if (isAreaFree(col, row, w, h, existingId)) {
             if (isNew) {
@@ -230,17 +228,17 @@
         div.dataset.icon = icon; div.dataset.color = color; div.dataset.stage = "0";
         
         renderIcons(div, w, h, STAGE_ICONS[0]);
-        div.style.left = (col * 42) + 'px'; div.style.top = (row * 42) + 'px';
+        div.style.left = (col * 42) + 'px'; 
+        div.style.top = (row * 42) + 'px';
         div.style.backgroundColor = color;
         div.draggable = true;
         
-        // Drag mit Maus (PC)
+        // Maus-Drag (Pflanze verschieben) nur PC
         div.ondragstart = (e) => startDrag(e, parseInt(div.dataset.w), parseInt(div.dataset.h), icon, color, false, id);
-        // Drag mit Taste M
         div.onmouseenter = () => hoveredId = id;
-        div.onmouseleave = () => hoveredId = (hoveredId === id) ? null : hoveredId;
+        div.onmouseleave = () => { if (hoveredId === id) hoveredId = null; };
         
-        // Gießen bei Klick/Touch
+        // Gießen per Klick/Touch (Tap)
         div.onclick = () => {
             if (div.classList.contains('thirsty')) {
                 const n1 = Math.floor(Math.random() * 20) + 10;
@@ -250,10 +248,7 @@
             }
         };
 
-        // Touch-Drag für bereits platzierte Pflanzen
-        div.ontouchstart = function(e) {
-            startTouchDragExisting(e, id);
-        };
+        // WICHTIG: keine ontouchstart hier -> auf Tablet bleibt Pflanze beim Tippen zum Gießen an Ort und Stelle
 
         grid.appendChild(div);
         updateOccupancy(id, col, row, w, h);
@@ -304,7 +299,8 @@
         const el = document.getElementById(id);
         updateOccupancy(id, parseInt(el.dataset.col), parseInt(el.dataset.row), parseInt(el.dataset.w), parseInt(el.dataset.h), true);
         el.dataset.col = newCol; el.dataset.row = newRow;
-        el.style.left = (newCol * 42) + 'px'; el.style.top = (newRow * 42) + 'px';
+        el.style.left = (newCol * 42) + 'px'; 
+        el.style.top = (newRow * 42) + 'px';
         el.style.opacity = "1";
         updateOccupancy(id, newCol, newRow, parseInt(el.dataset.w), parseInt(el.dataset.h));
         updateArea();
@@ -344,7 +340,7 @@
         document.getElementById('area-val').innerText = total;
     }
 
-    // ---------- Touch-Drag-System ----------
+    // ------- Touch-Drag nur für Samen-Karten -------
 
     function createGhost(x, y, w, h, icon, color) {
         const ghost = document.createElement('div');
@@ -367,7 +363,6 @@
         ghost.style.top = (y - totalH / 2) + 'px';
     }
 
-    // Start vom Samen-Vorrat (neue Pflanze)
     function startTouchDragFromSeed(ev, w, h, icon, color) {
         if (!isTouchDevice) return;
         const touch = ev.touches && ev.touches[0];
@@ -379,41 +374,8 @@
         touchDrag.h = h;
         touchDrag.icon = icon;
         touchDrag.color = color;
-        touchDrag.isNew = true;
-        touchDrag.existingId = null;
-        touchDrag.originalEl = null;
         touchDrag.col = null;
         touchDrag.row = null;
-        touchDrag.ghost = createGhost(touch.clientX, touch.clientY, w, h, icon, color);
-    }
-
-    // Start von bereits platzierter Pflanze
-    function startTouchDragExisting(ev, id) {
-        if (!isTouchDevice) return;
-        const touch = ev.touches && ev.touches[0];
-        if (!touch) return;
-        ev.preventDefault();
-
-        const el = document.getElementById(id);
-        if (!el) return;
-
-        const w = parseInt(el.dataset.w);
-        const h = parseInt(el.dataset.h);
-        const icon = el.dataset.icon;
-        const color = el.dataset.color;
-
-        touchDrag.active = true;
-        touchDrag.w = w;
-        touchDrag.h = h;
-        touchDrag.icon = icon;
-        touchDrag.color = color;
-        touchDrag.isNew = false;
-        touchDrag.existingId = id;
-        touchDrag.originalEl = el;
-        touchDrag.col = null;
-        touchDrag.row = null;
-        el.style.opacity = '0.4';
-
         touchDrag.ghost = createGhost(touch.clientX, touch.clientY, w, h, icon, color);
     }
 
@@ -428,10 +390,16 @@
         }
 
         const rect = grid.getBoundingClientRect();
-        const col = Math.floor((touch.clientX - rect.left) / 42);
-        const row = Math.floor((touch.clientY - rect.top) / 42);
-        touchDrag.col = col;
-        touchDrag.row = row;
+        // gleiche Logik wie bei Maus-Drop: zentrieren + runden
+        let colRaw = Math.round((touch.clientX - rect.left - 20) / 42);
+        let rowRaw = Math.round((touch.clientY - rect.top - 20) / 42);
+
+        // innerhalb des Gitters halten, damit sauber einrastet
+        colRaw = Math.max(0, Math.min(10 - touchDrag.w, colRaw));
+        rowRaw = Math.max(0, Math.min(10 - touchDrag.h, rowRaw));
+
+        touchDrag.col = colRaw;
+        touchDrag.row = rowRaw;
     }
 
     function handleTouchEnd(ev) {
@@ -447,24 +415,15 @@
         const h = touchDrag.h;
         const icon = touchDrag.icon;
         const color = touchDrag.color;
-        const isNew = touchDrag.isNew;
-        const existingId = touchDrag.existingId;
-        const originalEl = touchDrag.originalEl;
 
         touchDrag.active = false;
         touchDrag.ghost = null;
 
-        if (originalEl) originalEl.style.opacity = '1';
-
         if (col == null || row == null) return;
-        if (!isAreaFree(col, row, w, h, existingId)) return;
+        if (!isAreaFree(col, row, w, h, null)) return;
 
-        if (isNew) {
-            pendingTask = { type: 'place', col, row, w, h, icon, color, result: w * h };
-            showOverlay("Neue Pflanze!", `${w} x ${h}`);
-        } else {
-            movePlant(existingId, col, row);
-        }
+        pendingTask = { type: 'place', col, row, w, h, icon, color, result: w * h };
+        showOverlay("Neue Pflanze!", `${w} x ${h}`);
     }
 
     if (isTouchDevice) {
