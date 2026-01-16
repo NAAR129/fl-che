@@ -80,36 +80,35 @@
     <div class="garden-wrapper">
         <h1 style="font-family:'Fredoka One'; color:var(--border); margin:0;">🌱 Wachstums-Garten</h1>
         <p style="font-size:0.8em; margin-bottom:5px;"><b>Klick 💧 zum Gießen</b> | <b>M</b> zum Drehen</p>
-        <!-- Grid: jetzt zusätzlich onclick für Touch-Geräte -->
+        <!-- Grid (drag mit Maus, touch-drag mit Finger) -->
         <div class="grid" id="garden-grid" 
              ondragover="handleDragOver(event)" 
-             ondrop="handleDrop(event)"
-             onclick="handleGridClick(event)"></div>
+             ondrop="handleDrop(event)"></div>
         <div class="stats">Belegte Fläche: <span id="area-val">0</span> / 100 m²</div>
     </div>
 
     <div class="sidebar">
         <button class="mega-water-btn" onclick="startMegaWatering()">🚿 ALLES GIEẞEN (Profi-Multiplikation)</button>
         <h3 style="margin:5px 0;">Samen-Vorrat:</h3>
-        <!-- Plant Cards: behalten dragstart für PC, fügen onclick für Touch hinzu -->
+        <!-- Plant Cards: dragstart für PC, touchstart für Mobil -->
         <div class="plant-card" draggable="true"
              ondragstart="startDrag(event, 4, 4, '🎃', '#fb8500')"
-             onclick="selectPlantTouch(4, 4, '🎃', '#fb8500')">
+             ontouchstart="startTouchDragFromSeed(event, 4, 4, '🎃', '#fb8500')">
             <span>🎃 Kürbis (4x4)</span>
         </div>
         <div class="plant-card" draggable="true"
              ondragstart="startDrag(event, 3, 2, '🌽', '#ffc107')"
-             onclick="selectPlantTouch(3, 2, '🌽', '#ffc107')">
+             ontouchstart="startTouchDragFromSeed(event, 3, 2, '🌽', '#ffc107')">
             <span>🌽 Mais (3x2)</span>
         </div>
         <div class="plant-card" draggable="true"
              ondragstart="startDrag(event, 2, 2, '🍓', '#e91e63')"
-             onclick="selectPlantTouch(2, 2, '🍓', '#e91e63')">
+             ontouchstart="startTouchDragFromSeed(event, 2, 2, '🍓', '#e91e63')">
             <span>🍓 Erdbeere (2x2)</span>
         </div>
         <div class="plant-card" draggable="true"
              ondragstart="startDrag(event, 1, 1, '🥕', '#ff9800')"
-             onclick="selectPlantTouch(1, 1, '🥕', '#ff9800')">
+             ontouchstart="startTouchDragFromSeed(event, 1, 1, '🥕', '#ff9800')">
             <span>🥕 Karotte (1x1)</span>
         </div>
     </div>
@@ -124,11 +123,25 @@
     let pendingTask = null;
     let occupancy = Array(10).fill().map(() => Array(10).fill(null));
 
-    // NUEVO: detección de dispositivo táctil y planta seleccionada
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    let selectedPlant = null;
-
     const STAGE_ICONS = { 0: '🌱', 1: '🌿' };
+
+    // Erkennung Touch-Gerät
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+    // Zustand für eigenes Touch-Drag-System
+    let touchDrag = {
+        active: false,
+        w: 0,
+        h: 0,
+        icon: '',
+        color: '',
+        isNew: true,
+        existingId: null,
+        originalEl: null,
+        col: null,
+        row: null,
+        ghost: null
+    };
 
     // Erzeuge 100 Raster-Zellen
     for (let i = 0; i < 100; i++) {
@@ -144,7 +157,9 @@
 
     function handleDragOver(ev) { ev.preventDefault(); }
 
+    // Standard-Drag & Drop (PC)
     function startDrag(ev, w, h, icon, color, isNew = true, existingId = null) {
+        if (isTouchDevice) return; // auf Touch nutzen wir eigenes System
         draggedInfo = { w, h, icon, color, isNew, existingId };
         if (existingId) document.getElementById(existingId).style.opacity = "0.4";
     }
@@ -160,6 +175,7 @@
     }
 
     function handleDrop(ev) {
+        if (isTouchDevice) return; // Touch wird anders behandelt
         ev.preventDefault();
         const rect = grid.getBoundingClientRect();
         const col = Math.round((ev.clientX - rect.left - 20) / 42); 
@@ -218,10 +234,13 @@
         div.style.backgroundColor = color;
         div.draggable = true;
         
+        // Drag mit Maus (PC)
         div.ondragstart = (e) => startDrag(e, parseInt(div.dataset.w), parseInt(div.dataset.h), icon, color, false, id);
+        // Drag mit Taste M
         div.onmouseenter = () => hoveredId = id;
         div.onmouseleave = () => hoveredId = (hoveredId === id) ? null : hoveredId;
         
+        // Gießen bei Klick/Touch
         div.onclick = () => {
             if (div.classList.contains('thirsty')) {
                 const n1 = Math.floor(Math.random() * 20) + 10;
@@ -229,6 +248,11 @@
                 pendingTask = { type: 'water_single', id: id, result: n1 + n2 };
                 showOverlay("Gießen!", `${n1} + ${n2}`);
             }
+        };
+
+        // Touch-Drag für bereits platzierte Pflanzen
+        div.ontouchstart = function(e) {
+            startTouchDragExisting(e, id);
         };
 
         grid.appendChild(div);
@@ -283,6 +307,7 @@
         el.style.left = (newCol * 42) + 'px'; el.style.top = (newRow * 42) + 'px';
         el.style.opacity = "1";
         updateOccupancy(id, newCol, newRow, parseInt(el.dataset.w), parseInt(el.dataset.h));
+        updateArea();
     }
 
     function renderIcons(el, w, h, icon) {
@@ -319,29 +344,132 @@
         document.getElementById('area-val').innerText = total;
     }
 
-    // NUEVO: seleccionar planta en pantallas táctiles
-    function selectPlantTouch(w, h, icon, color) {
-        if (!isTouchDevice) return; // en PC/portátil se usa drag & drop
-        selectedPlant = { w, h, icon, color };
+    // ---------- Touch-Drag-System ----------
+
+    function createGhost(x, y, w, h, icon, color) {
+        const ghost = document.createElement('div');
+        ghost.className = 'placed-plant';
+        ghost.style.position = 'fixed';
+        ghost.style.pointerEvents = 'none';
+        ghost.style.opacity = '0.7';
+        ghost.style.backgroundColor = color;
+        ghost.style.zIndex = '999';
+        renderIcons(ghost, w, h, icon);
+        document.body.appendChild(ghost);
+        positionGhost(ghost, x, y, w, h);
+        return ghost;
     }
 
-    // NUEVO: tocar im Raster zum Platzieren (nur Touch)
-    function handleGridClick(ev) {
+    function positionGhost(ghost, x, y, w, h) {
+        const totalW = w * 42;
+        const totalH = h * 42;
+        ghost.style.left = (x - totalW / 2) + 'px';
+        ghost.style.top = (y - totalH / 2) + 'px';
+    }
+
+    // Start vom Samen-Vorrat (neue Pflanze)
+    function startTouchDragFromSeed(ev, w, h, icon, color) {
         if (!isTouchDevice) return;
-        if (!selectedPlant) return;
+        const touch = ev.touches && ev.touches[0];
+        if (!touch) return;
+        ev.preventDefault();
+
+        touchDrag.active = true;
+        touchDrag.w = w;
+        touchDrag.h = h;
+        touchDrag.icon = icon;
+        touchDrag.color = color;
+        touchDrag.isNew = true;
+        touchDrag.existingId = null;
+        touchDrag.originalEl = null;
+        touchDrag.col = null;
+        touchDrag.row = null;
+        touchDrag.ghost = createGhost(touch.clientX, touch.clientY, w, h, icon, color);
+    }
+
+    // Start von bereits platzierter Pflanze
+    function startTouchDragExisting(ev, id) {
+        if (!isTouchDevice) return;
+        const touch = ev.touches && ev.touches[0];
+        if (!touch) return;
+        ev.preventDefault();
+
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        const w = parseInt(el.dataset.w);
+        const h = parseInt(el.dataset.h);
+        const icon = el.dataset.icon;
+        const color = el.dataset.color;
+
+        touchDrag.active = true;
+        touchDrag.w = w;
+        touchDrag.h = h;
+        touchDrag.icon = icon;
+        touchDrag.color = color;
+        touchDrag.isNew = false;
+        touchDrag.existingId = id;
+        touchDrag.originalEl = el;
+        touchDrag.col = null;
+        touchDrag.row = null;
+        el.style.opacity = '0.4';
+
+        touchDrag.ghost = createGhost(touch.clientX, touch.clientY, w, h, icon, color);
+    }
+
+    function handleTouchMove(ev) {
+        if (!touchDrag.active) return;
+        const touch = ev.touches && ev.touches[0];
+        if (!touch) return;
+        ev.preventDefault();
+
+        if (touchDrag.ghost) {
+            positionGhost(touchDrag.ghost, touch.clientX, touch.clientY, touchDrag.w, touchDrag.h);
+        }
 
         const rect = grid.getBoundingClientRect();
-        const col = Math.floor((ev.clientX - rect.left) / 42);
-        const row = Math.floor((ev.clientY - rect.top) / 42);
+        const col = Math.floor((touch.clientX - rect.left) / 42);
+        const row = Math.floor((touch.clientY - rect.top) / 42);
+        touchDrag.col = col;
+        touchDrag.row = row;
+    }
 
-        const { w, h, icon, color } = selectedPlant;
+    function handleTouchEnd(ev) {
+        if (!touchDrag.active) return;
 
-        if (isAreaFree(col, row, w, h)) {
+        if (touchDrag.ghost) {
+            document.body.removeChild(touchDrag.ghost);
+        }
+
+        const col = touchDrag.col;
+        const row = touchDrag.row;
+        const w = touchDrag.w;
+        const h = touchDrag.h;
+        const icon = touchDrag.icon;
+        const color = touchDrag.color;
+        const isNew = touchDrag.isNew;
+        const existingId = touchDrag.existingId;
+        const originalEl = touchDrag.originalEl;
+
+        touchDrag.active = false;
+        touchDrag.ghost = null;
+
+        if (originalEl) originalEl.style.opacity = '1';
+
+        if (col == null || row == null) return;
+        if (!isAreaFree(col, row, w, h, existingId)) return;
+
+        if (isNew) {
             pendingTask = { type: 'place', col, row, w, h, icon, color, result: w * h };
             showOverlay("Neue Pflanze!", `${w} x ${h}`);
         } else {
-            // optional: alert("Hier ist kein Platz!");
+            movePlant(existingId, col, row);
         }
+    }
+
+    if (isTouchDevice) {
+        document.addEventListener('touchmove', handleTouchMove, { passive: false });
+        document.addEventListener('touchend', handleTouchEnd, { passive: false });
     }
 </script>
 </body>
